@@ -82,3 +82,7 @@ Commits follow [Conventional Commits](https://www.conventionalcommits.org/):
 - TypeScript strict mode; no `any`
 - No abbreviations in identifiers
 - File names in kebab-case
+
+## License
+
+[MIT](LICENSE)
