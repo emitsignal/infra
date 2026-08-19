@@ -3,8 +3,7 @@
  *
  * Loads, in priority order (first wins — already-set keys are never overwritten):
  *   1. variables already present in the process environment
- *   2. infra/.env            (backup-specific config + R2 credentials)
- *   3. packages/emitsignal-server/.env  (so DATABASE_URL is reused automatically)
+ *   2. .env at the repository root
  *
  * We parse by hand instead of pulling in a dependency: a handful of `KEY=VALUE`
  * lines is all we need and the infra scripts must stay zero-install.
@@ -12,12 +11,9 @@
 
 import { join } from 'node:path';
 
-const REPOSITORY_ROOT = join(import.meta.dir, '..', '..');
+const REPOSITORY_ROOT = join(import.meta.dir, '..');
 
-const ENV_FILES = [
-    join(REPOSITORY_ROOT, 'infra', '.env'),
-    join(REPOSITORY_ROOT, 'packages', 'emitsignal-server', '.env'),
-];
+const ENV_FILES = [join(REPOSITORY_ROOT, '.env')];
 
 function parseEnvFile(contents: string): Record<string, string> {
     const result: Record<string, string> = {};
