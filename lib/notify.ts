@@ -46,6 +46,8 @@ export async function publishSignal(config: NotifyConfig, message: SignalMessage
                 `⚠️  EmitSignal notification failed: HTTP ${response.status} ${response.statusText}`,
             );
         }
+
+        console.info(`EmitSignal notification delivered: ${config.topic}`);
     } catch (error) {
         console.warn(
             `⚠️  EmitSignal notification failed: ${error instanceof Error ? error.message : String(error)}`,
