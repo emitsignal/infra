@@ -58,8 +58,11 @@ passed.
 
 ### Notes
 
-- A local `DATABASE_URL` (`localhost`/`127.0.0.1`) is automatically routed to
-  `host.docker.internal` so the one-off container reaches your host database.
+- A local `DATABASE_URL` (`localhost`/`127.0.0.1`) reaches your host database
+  automatically: on Linux the one-off container runs with `--network=host`, on
+  macOS it is routed through `host.docker.internal`. The Linux path matters when
+  the port is published to loopback only (`127.0.0.1:5432:5432`), which is not
+  reachable over the docker bridge gateway.
 - Keep `POSTGRES_IMAGE` in sync with your database's major version.
 - Credentials are passed to the container via `PG*` env vars (not on the command
   line), so they don't leak into `docker`'s process arguments.

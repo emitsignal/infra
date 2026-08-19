@@ -3,8 +3,10 @@
  * does not need the PostgreSQL client tools installed. The container version is
  * pinned to the database version via `POSTGRES_IMAGE`.
  *
- * On macOS a one-off container cannot reach the host's `localhost`, so a local
- * `DATABASE_URL` is transparently routed through `host.docker.internal`.
+ * A one-off container cannot reach the host's loopback interface on its own, and
+ * a published port bound to 127.0.0.1 is not reachable over the docker bridge
+ * gateway either. So a local `DATABASE_URL` shares the host network namespace on
+ * Linux, and is routed through `host.docker.internal` on macOS.
  */
 
 const LOCAL_HOSTNAMES = new Set(['::1', '127.0.0.1', 'localhost']);
@@ -12,6 +14,7 @@ const LOCAL_HOSTNAMES = new Set(['::1', '127.0.0.1', 'localhost']);
 interface ConnectionTarget {
     addHostGateway: boolean;
     environment: string[];
+    useHostNetwork: boolean;
 }
 
 interface DumpOptions {
@@ -92,7 +95,13 @@ export async function restoreDatabase({
 function buildConnectionTarget(databaseUrl: string): ConnectionTarget {
     const url = new URL(databaseUrl);
     const isLocal = LOCAL_HOSTNAMES.has(url.hostname);
-    const host = isLocal ? 'host.docker.internal' : url.hostname;
+
+    // Linux containers can share the host network namespace, which reaches a
+    // loopback-bound published port as-is. macOS has no host namespace to share,
+    // so a local URL goes through the bridge gateway instead.
+    const useHostNetwork = isLocal && process.platform === 'linux';
+    const addHostGateway = isLocal && !useHostNetwork;
+    const host = addHostGateway ? 'host.docker.internal' : url.hostname;
 
     const environment: string[] = [
         `PGHOST=${host}`,
@@ -114,7 +123,7 @@ function buildConnectionTarget(databaseUrl: string): ConnectionTarget {
         environment.push(`PGSSLMODE=${sslMode}`);
     }
 
-    return { addHostGateway: isLocal, environment };
+    return { addHostGateway, environment, useHostNetwork };
 }
 
 function dockerArguments(
@@ -123,6 +132,10 @@ function dockerArguments(
     command: string[],
 ): string[] {
     const args = ['run', '--rm', '-i'];
+
+    if (target.useHostNetwork) {
+        args.push('--network=host');
+    }
 
     if (target.addHostGateway) {
         args.push('--add-host=host.docker.internal:host-gateway');
