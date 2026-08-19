@@ -63,6 +63,10 @@ passed.
   macOS it is routed through `host.docker.internal`. The Linux path matters when
   the port is published to loopback only (`127.0.0.1:5432:5432`), which is not
   reachable over the docker bridge gateway.
+- Set `EMITSIGNAL_TOPIC` to publish each run's outcome back to EmitSignal —
+  priority 2 on success, priority 5 on failure. Unset means no notifications.
+  Publishing is best-effort: a failed notification is warned about but never
+  fails the backup itself.
 - Keep `POSTGRES_IMAGE` in sync with your database's major version.
 - Credentials are passed to the container via `PG*` env vars (not on the command
   line), so they don't leak into `docker`'s process arguments.

@@ -12,12 +12,13 @@
  */
 
 import { unlink } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { BackupConfig } from './lib/config';
 
 import { createR2Client, loadConfig } from './lib/config';
+import { publishSignal } from './lib/notify';
 import { restoreDatabase } from './lib/postgres';
 
 interface ParsedArguments {
@@ -100,6 +101,44 @@ async function main(): Promise<void> {
         }
     }
 
+    try {
+        await runRestore(config, objectKey, databaseName);
+    } catch (error) {
+        await publishSignal(config.notify, {
+            body:
+                `${databaseName} ← ${objectKey}\n` +
+                `${error instanceof Error ? error.message : String(error)}\n` +
+                `host: ${hostname()}`,
+            priority: 5,
+            tags: ['database', 'restore', 'failed'],
+            title: '❌ Database restore failed',
+        });
+
+        throw error;
+    }
+}
+
+function parseArguments(argv: string[]): ParsedArguments {
+    const parsed: ParsedArguments = { key: null, list: false, yes: false };
+
+    for (const argument of argv) {
+        if (argument === '--list') {
+            parsed.list = true;
+        } else if (argument === '--yes' || argument === '-y') {
+            parsed.yes = true;
+        } else if (!argument.startsWith('-')) {
+            parsed.key = argument;
+        }
+    }
+
+    return parsed;
+}
+
+async function runRestore(
+    config: BackupConfig,
+    objectKey: string,
+    databaseName: string,
+): Promise<void> {
     const localPath = join(tmpdir(), `emitsignal-restore-${Date.now()}.dump`);
 
     console.log(`⬇️  Downloading r2://${config.bucket}/${objectKey}…`);
@@ -126,22 +165,13 @@ async function main(): Promise<void> {
     }
 
     console.log('✅ Restore complete.');
-}
 
-function parseArguments(argv: string[]): ParsedArguments {
-    const parsed: ParsedArguments = { key: null, list: false, yes: false };
-
-    for (const argument of argv) {
-        if (argument === '--list') {
-            parsed.list = true;
-        } else if (argument === '--yes' || argument === '-y') {
-            parsed.yes = true;
-        } else if (!argument.startsWith('-')) {
-            parsed.key = argument;
-        }
-    }
-
-    return parsed;
+    await publishSignal(config.notify, {
+        body: `${databaseName} ← ${objectKey}\nhost: ${hostname()}`,
+        priority: 4,
+        tags: ['database', 'restore'],
+        title: '♻️ Database restore complete',
+    });
 }
 
 main().catch((error) => {

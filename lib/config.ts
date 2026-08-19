@@ -4,6 +4,9 @@
  * Reuses the same `S3_*` credentials the server uses for Cloudflare R2 (see
  * `packages/emitsignal-server/src/lib/storage/s3-provider.ts`). Backups land in
  * `BACKUP_BUCKET` (defaults to the private bucket) under `BACKUP_PREFIX`.
+ *
+ * Setting `EMITSIGNAL_TOPIC` opts in to publishing run outcomes back to
+ * EmitSignal itself; leaving it unset disables notifications entirely.
  */
 
 import { loadEnvironment } from './env';
@@ -11,9 +14,16 @@ import { loadEnvironment } from './env';
 export interface BackupConfig {
     bucket: string;
     databaseUrl: string;
+    notify: NotifyConfig;
     postgresImage: string;
     prefix: string;
     r2: R2Credentials;
+}
+
+export interface NotifyConfig {
+    apiKey: null | string;
+    apiUrl: string;
+    topic: null | string;
 }
 
 export interface R2Credentials {
@@ -44,13 +54,26 @@ export async function loadConfig(): Promise<BackupConfig> {
         secretAccessKey: required('S3_SECRET_ACCESS_KEY'),
     };
 
+    const notify: NotifyConfig = {
+        apiKey: nullable('EMITSIGNAL_API_KEY'),
+        apiUrl: optional('EMITSIGNAL_API_URL', 'https://api.emitsignal.com').replace(/\/+$/, ''),
+        topic: nullable('EMITSIGNAL_TOPIC'),
+    };
+
     return {
         bucket: optional('BACKUP_BUCKET', required('S3_PRIVATE_BUCKET_NAME')),
         databaseUrl: required('DATABASE_URL'),
+        notify,
         postgresImage: optional('POSTGRES_IMAGE', 'postgres:16-alpine'),
         prefix: optional('BACKUP_PREFIX', 'db-backups').replace(/\/+$/, ''),
         r2,
     };
+}
+
+function nullable(name: string): null | string {
+    const value = process.env[name];
+
+    return value === undefined || value.trim() === '' ? null : value.trim();
 }
 
 function optional(name: string, fallback: string): string {

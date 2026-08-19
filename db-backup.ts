@@ -10,10 +10,13 @@
  */
 
 import { unlink } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import type { BackupConfig } from './lib/config';
+
 import { createR2Client, loadConfig } from './lib/config';
+import { publishSignal } from './lib/notify';
 import { dumpDatabase } from './lib/postgres';
 
 function formatBytes(bytes: number): string {
@@ -36,6 +39,21 @@ function formatBytes(bytes: number): string {
 async function main(): Promise<void> {
     const config = await loadConfig();
 
+    try {
+        await runBackup(config);
+    } catch (error) {
+        await publishSignal(config.notify, {
+            body: `${error instanceof Error ? error.message : String(error)}\nhost: ${hostname()}`,
+            priority: 5,
+            tags: ['database', 'backup', 'failed'],
+            title: '❌ Database backup failed',
+        });
+
+        throw error;
+    }
+}
+
+async function runBackup(config: BackupConfig): Promise<void> {
     const databaseName = new URL(config.databaseUrl).pathname.replace(/^\//, '') || 'database';
     const objectKey = `${config.prefix}/${databaseName}-${timestamp()}.dump`;
     const localPath = join(tmpdir(), `emitsignal-backup-${timestamp()}.dump`);
@@ -67,6 +85,16 @@ async function main(): Promise<void> {
     console.log('✅ Backup complete.');
     console.log(`   key: ${objectKey}`);
     console.log(`   restore with: bun infra/db-restore.ts ${objectKey}`);
+
+    await publishSignal(config.notify, {
+        body:
+            `${databaseName} · ${formatBytes(size)}\n` +
+            `r2://${config.bucket}/${objectKey}\n` +
+            `host: ${hostname()}`,
+        priority: 2,
+        tags: ['database', 'backup'],
+        title: '✅ Database backup complete',
+    });
 }
 
 function timestamp(): string {
