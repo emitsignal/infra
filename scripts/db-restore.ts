@@ -2,10 +2,10 @@
 /**
  * Restore the PostgreSQL database from a dump stored in Cloudflare R2.
  *
- *   bun infra/db-restore.ts                 # restore the most recent backup
- *   bun infra/db-restore.ts <object-key>    # restore a specific backup
- *   bun infra/db-restore.ts --list          # list available backups
- *   bun infra/db-restore.ts <key> --yes     # skip the confirmation prompt
+ *   bun scripts/db-restore.ts                 # restore the most recent backup
+ *   bun scripts/db-restore.ts <object-key>    # restore a specific backup
+ *   bun scripts/db-restore.ts --list          # list available backups
+ *   bun scripts/db-restore.ts <key> --yes     # skip the confirmation prompt
  *
  * This DROPS and recreates objects in the target database (pg_restore --clean
  * --if-exists), so it prompts for confirmation unless --yes is passed.
@@ -15,11 +15,11 @@ import { unlink } from 'node:fs/promises';
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import type { BackupConfig } from './lib/config';
+import type { BackupConfig } from '../lib/config';
 
-import { createR2Client, loadConfig } from './lib/config';
-import { publishSignal } from './lib/notify';
-import { restoreDatabase } from './lib/postgres';
+import { createR2Client, loadConfig } from '../lib/config';
+import { publishSignal } from '../lib/notify';
+import { restoreDatabase } from '../lib/postgres';
 
 interface ParsedArguments {
     key: null | string;
@@ -174,8 +174,16 @@ async function runRestore(
     });
 }
 
-main().catch((error) => {
-    console.error(`❌ Restore failed: ${error instanceof Error ? error.message : String(error)}`);
+// Only when run directly. Restore is interactive and destructive (it drops and
+// recreates objects), so it must never execute as a side effect of an import.
+if (import.meta.main) {
+    try {
+        await main();
+    } catch (error) {
+        console.error(
+            `❌ Restore failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
 
-    process.exit(1);
-});
+        process.exit(1);
+    }
+}

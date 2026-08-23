@@ -82,8 +82,19 @@ export function collectWarnings(
 
     for (const container of snapshot.containerHealth ?? []) {
         if (container.state !== 'running') {
+            // A `restart: no` container that exited 0 is a finished job, not an
+            // outage: the compose stack runs `prisma migrate deploy` that way,
+            // and the server and worker only start once it succeeds. A *service*
+            // that exited is still an alert even on code 0 — it should be up.
+            if (isCompletedJob(container)) {
+                continue;
+            }
+
             warnings.push({
-                detail: `is ${container.state}`,
+                detail:
+                    container.state === 'exited'
+                        ? `exited with code ${container.exitCode}`
+                        : `is ${container.state}`,
                 label: short.get(container.name) ?? container.name,
             });
 
@@ -155,6 +166,13 @@ export function formatTitle(snapshot: MonitorSnapshot, warnings: Warning[]): str
     return `🚨 ${snapshot.hostname} — ${warnings.length} ${warnings.length === 1 ? 'alert' : 'alerts'}`;
 }
 
+/** A one-shot job (`restart: no`) that ran to completion. */
+export function isCompletedJob(container: ContainerHealth): boolean {
+    return (
+        container.state === 'exited' && container.exitCode === 0 && container.restartPolicy === 'no'
+    );
+}
+
 function formatContainers(snapshot: MonitorSnapshot, thresholds: MonitorThresholds): null | string {
     const stats = snapshot.containerStats;
 
@@ -166,7 +184,12 @@ function formatContainers(snapshot: MonitorSnapshot, thresholds: MonitorThreshol
         return `📦 Containers\n   none matching "${snapshot.containerPrefix}"`;
     }
 
-    const short = shortenNames(stats.map((container) => container.name));
+    // Includes health-only entries (an exited job is absent from `docker stats`)
+    // so their names shorten against the same shared prefix as the table rows.
+    const short = shortenNames([
+        ...stats.map((container) => container.name),
+        ...(snapshot.containerHealth ?? []).map((container) => container.name),
+    ]);
     const width = Math.max(...stats.map((container) => (short.get(container.name) ?? '').length));
     const healthByName = new Map(
         (snapshot.containerHealth ?? []).map((container) => [container.name, container]),
@@ -210,6 +233,16 @@ function formatContainers(snapshot: MonitorSnapshot, thresholds: MonitorThreshol
 
     if (restarts.length > 0) {
         rows.push(`   ↻ restarts: ${restarts.join(', ')}`);
+    }
+
+    // Jobs are absent from `docker stats` once they exit, so without this they
+    // would vanish from the report entirely rather than reading as "done".
+    const completed = (snapshot.containerHealth ?? [])
+        .filter((container) => isCompletedJob(container))
+        .map((container) => short.get(container.name) ?? container.name);
+
+    if (completed.length > 0) {
+        rows.push(`   ✔ completed: ${completed.join(', ')}`);
     }
 
     return [`📦 Containers (${stats.length})`, ...rows].join('\n');
