@@ -174,8 +174,16 @@ async function runRestore(
     });
 }
 
-main().catch((error) => {
-    console.error(`❌ Restore failed: ${error instanceof Error ? error.message : String(error)}`);
+// Only when run directly. Restore is interactive and destructive (it drops and
+// recreates objects), so it must never execute as a side effect of an import.
+if (import.meta.main) {
+    try {
+        await main();
+    } catch (error) {
+        console.error(
+            `❌ Restore failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
 
-    process.exit(1);
-});
+        process.exit(1);
+    }
+}

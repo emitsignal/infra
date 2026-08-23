@@ -17,15 +17,27 @@ import type { BackupConfig } from '../lib/config';
 
 import { createR2Client, loadConfig } from '../lib/config';
 import { formatBytes } from '../lib/format';
+import { appendLog } from '../lib/log';
 import { publishSignal } from '../lib/notify';
 import { dumpDatabase } from '../lib/postgres';
 
-async function main(): Promise<void> {
+/**
+ * Exported so the cron target in scripts/cron/ can run a backup without going
+ * through the CLI. Never calls process.exit — that is the CLI's business.
+ */
+export async function runBackupJob(): Promise<void> {
     const config = await loadConfig();
 
     try {
         await runBackup(config);
+
+        await appendLog(config.logFile, 'Backup complete.');
     } catch (error) {
+        await appendLog(
+            config.logFile,
+            `Backup FAILED: ${error instanceof Error ? error.message : String(error)}`,
+        );
+
         await publishSignal(config.notify, {
             body: `${error instanceof Error ? error.message : String(error)}\nhost: ${hostname()}`,
             priority: 5,
@@ -91,7 +103,14 @@ function timestamp(): string {
     );
 }
 
-main().catch((error) => {
-    console.error(`❌ Backup failed: ${error instanceof Error ? error.message : String(error)}`);
-    process.exit(1);
-});
+// Only when run directly — importing this module must not start a backup.
+if (import.meta.main) {
+    try {
+        await runBackupJob();
+    } catch (error) {
+        console.error(
+            `❌ Backup failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        process.exit(1);
+    }
+}

@@ -18,6 +18,9 @@
     "scripts": {
         "db:backup": "bun scripts/db-backup.ts",
         "db:restore": "bun scripts/db-restore.ts",
+        "cron:install": "bun scripts/cron.ts --install",
+        "cron:list": "bun scripts/cron.ts --list",
+        "cron:remove": "bun scripts/cron.ts --remove",
         "format": "prettier --write .",
         "format:check": "prettier --check .",
         "lint": "eslint .",

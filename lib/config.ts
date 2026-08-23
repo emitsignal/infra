@@ -18,6 +18,8 @@ import { loadEnvironment } from './env';
 export interface BackupConfig {
     bucket: string;
     databaseUrl: string;
+    /** Appended to by the script itself; null disables file logging. */
+    logFile: null | string;
     notify: NotifyConfig;
     postgresImage: string;
     prefix: string;
@@ -27,6 +29,8 @@ export interface BackupConfig {
 export interface MonitorConfig {
     containerPrefix: string;
     diskMount: string;
+    /** Appended to by the script itself; null disables file logging. */
+    logFile: null | string;
     notify: NotifyConfig;
     thresholds: MonitorThresholds;
 }
@@ -78,6 +82,7 @@ export async function loadConfig(): Promise<BackupConfig> {
     return {
         bucket: optional('BACKUP_BUCKET', required('S3_PRIVATE_BUCKET_NAME')),
         databaseUrl: required('DATABASE_URL'),
+        logFile: nullable('BACKUP_LOG_FILE'),
         notify: loadNotifyConfig(),
         postgresImage: optional('POSTGRES_IMAGE', 'postgres:16-alpine'),
         prefix: optional('BACKUP_PREFIX', 'db-backups').replace(/\/+$/, ''),
@@ -91,6 +96,7 @@ export async function loadMonitorConfig(): Promise<MonitorConfig> {
     return {
         containerPrefix: optional('MONITOR_CONTAINER_PREFIX', 'emitsignal-'),
         diskMount: optional('MONITOR_DISK_MOUNT', '/'),
+        logFile: nullable('MONITOR_LOG_FILE'),
         notify: loadNotifyConfig(),
         thresholds: {
             containerMemoryPercent: percentage('MONITOR_CONTAINER_MEM_THRESHOLD', 90),

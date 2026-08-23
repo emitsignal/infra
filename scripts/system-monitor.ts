@@ -12,8 +12,12 @@
  * container's health crosses its threshold. The digest run is the once-a-day
  * "everything is fine, here are the numbers" signal.
  *
- * Every run prints the full report to stdout, so redirecting the cron entry to a
- * log file reproduces what the old system-monitor.sh wrote itself.
+ * Every run prints the full report to stdout, and appends it to MONITOR_LOG_FILE
+ * when that is set.
+ *
+ * `runMonitor` is exported so the cron target in scripts/cron/ can call it
+ * without going through the CLI. It deliberately never calls process.exit: the
+ * exit code is the CLI's business, not the scheduled job's.
  */
 
 import { hostname } from 'node:os';
@@ -23,12 +27,71 @@ import type { MonitorSnapshot } from '../lib/report';
 
 import { loadMonitorConfig } from '../lib/config';
 import { readContainerHealth, readContainerStats, readDockerDiskUsage } from '../lib/docker';
+import { appendLog } from '../lib/log';
 import { publishSignal } from '../lib/notify';
 import { collectWarnings, formatReport, formatTitle } from '../lib/report';
 import { readCpu, readDisk, readLoadAverage, readMemory, readUptimeSeconds } from '../lib/system';
 
 const ALERT_PRIORITY = 5;
 const DIGEST_PRIORITY = 2;
+
+export interface MonitorRunOptions {
+    digest?: boolean;
+    dryRun?: boolean;
+}
+
+export interface MonitorRunResult {
+    warningCount: number;
+}
+
+export async function runMonitor({
+    digest = false,
+    dryRun = false,
+}: MonitorRunOptions = {}): Promise<MonitorRunResult> {
+    const config = await loadMonitorConfig();
+
+    let snapshot: MonitorSnapshot;
+
+    try {
+        snapshot = await collectSnapshot(config);
+    } catch (error) {
+        await publishSignal(config.notify, {
+            body: `${describe(error)}\nhost: ${hostname()}`,
+            priority: ALERT_PRIORITY,
+            tags: ['system', 'monitor', 'failed'],
+            title: `❌ ${hostname()} — system monitor failed`,
+        });
+
+        throw error;
+    }
+
+    const warnings = collectWarnings(snapshot, config.thresholds);
+    const report = formatReport(snapshot, warnings, config.thresholds);
+
+    console.log(report);
+
+    if (dryRun) {
+        console.log(`\n(dry run — ${warnings.length} warning(s), nothing published)`);
+
+        return { warningCount: warnings.length };
+    }
+
+    await appendLog(config.logFile, report);
+
+    if (warnings.length > 0 || digest) {
+        await publishSignal(config.notify, {
+            body: report,
+            priority: warnings.length > 0 ? ALERT_PRIORITY : DIGEST_PRIORITY,
+            tags:
+                warnings.length > 0
+                    ? ['system', 'monitor', 'alert']
+                    : ['system', 'monitor', 'digest'],
+            title: formatTitle(snapshot, warnings),
+        });
+    }
+
+    return { warningCount: warnings.length };
+}
 
 async function collectSnapshot(config: MonitorConfig): Promise<MonitorSnapshot> {
     const errors: string[] = [];
@@ -84,55 +147,21 @@ function describe(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
 }
 
-async function main(): Promise<void> {
-    const config = await loadMonitorConfig();
-    const isDigest = process.argv.includes('--digest');
-    const isDryRun = process.argv.includes('--dry-run');
-
-    let snapshot: MonitorSnapshot;
-
+// Only when run directly — importing this module (as scripts/cron/ does) must
+// not execute a monitor run as a side effect.
+if (import.meta.main) {
     try {
-        snapshot = await collectSnapshot(config);
-    } catch (error) {
-        await publishSignal(config.notify, {
-            body: `${describe(error)}\nhost: ${hostname()}`,
-            priority: ALERT_PRIORITY,
-            tags: ['system', 'monitor', 'failed'],
-            title: `❌ ${hostname()} — system monitor failed`,
+        const { warningCount } = await runMonitor({
+            digest: process.argv.includes('--digest'),
+            dryRun: process.argv.includes('--dry-run'),
         });
 
-        throw error;
-    }
-
-    const warnings = collectWarnings(snapshot, config.thresholds);
-    const report = formatReport(snapshot, warnings, config.thresholds);
-
-    console.log(report);
-
-    if (isDryRun) {
-        console.log(`\n(dry run — ${warnings.length} warning(s), nothing published)`);
-
-        return;
-    }
-
-    if (warnings.length === 0 && !isDigest) {
-        return;
-    }
-
-    await publishSignal(config.notify, {
-        body: report,
-        priority: warnings.length > 0 ? ALERT_PRIORITY : DIGEST_PRIORITY,
-        tags:
-            warnings.length > 0 ? ['system', 'monitor', 'alert'] : ['system', 'monitor', 'digest'],
-        title: formatTitle(snapshot, warnings),
-    });
-
-    if (warnings.length > 0) {
+        // Non-zero on a breach so cron's MAILTO fires for a manual/CLI run too.
+        if (warningCount > 0) {
+            process.exit(1);
+        }
+    } catch (error) {
+        console.error(`❌ System monitor failed: ${describe(error)}`);
         process.exit(1);
     }
 }
-
-main().catch((error) => {
-    console.error(`❌ System monitor failed: ${describe(error)}`);
-    process.exit(1);
-});

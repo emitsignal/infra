@@ -1,3 +1,58 @@
+### Cron
+
+Schedules live in the `JOBS` table in `scripts/cron.ts` and are registered with
+`Bun.cron` (Bun 1.4+), which writes the crontab entries for you:
+
+```bash
+bun run cron:list       # print schedules and next fire times — changes nothing
+bun run cron:install    # register every job (safe to re-run)
+bun run cron:remove     # unregister every job
+```
+
+| Job                         | Schedule       | What it does                                      |
+| --------------------------- | -------------- | ------------------------------------------------- |
+| `emitsignal-monitor-alert`  | `*/30 * * * *` | Threshold check; silent unless something breaches |
+| `emitsignal-monitor-digest` | `0 8 * * *`    | Daily snapshot, published even when healthy       |
+| `emitsignal-db-backup`      | `0 3 * * *`    | Nightly database backup to R2                     |
+
+Run the install as the user whose crontab it belongs to — root on the VPS, since
+the monitor needs the Docker socket. Verify with `crontab -l`; Bun's entries are
+marked `# bun-cron: <title>`. Re-registering a title replaces its entry instead
+of duplicating it, so `cron:install` is idempotent.
+
+`cron:install` refuses to run anywhere but Linux unless you pass `--force`: on
+macOS `Bun.cron` installs launchd agents into `~/Library/LaunchAgents`, which is
+not what you want from a dev machine. `cron:list` is always safe.
+
+Three things to know:
+
+- **The bun binary path is baked into the crontab entry at registration time.**
+  If a bun upgrade moves the binary, the jobs silently stop — re-run
+  `cron:install` after upgrading.
+- **Hand-edits to the generated entries are lost on the next install.** The
+  `JOBS` table is the source of truth.
+- **Logging is done by the scripts, not by a shell redirect.** Bun owns the
+  crontab line, so there is nowhere to add `>> logfile 2>&1`. Set
+  `MONITOR_LOG_FILE` (and `BACKUP_LOG_FILE`) instead and the existing
+  `/etc/logrotate.d/system-monitor` config keeps working unchanged.
+
+<details>
+<summary>Manual crontab entries (fallback)</summary>
+
+`Bun.cron` OS-level registration is new in Bun 1.4. If it misbehaves, these
+plain entries do the same thing:
+
+```cron
+*/30 * * * * cd /opt/emitsignal-infra && /usr/local/bin/bun scripts/system-monitor.ts >> /var/log/system-monitor.log 2>&1
+0 8 * * *    cd /opt/emitsignal-infra && /usr/local/bin/bun scripts/system-monitor.ts --digest >> /var/log/system-monitor.log 2>&1
+0 3 * * *    cd /opt/emitsignal-infra && /usr/local/bin/bun scripts/db-backup.ts >> /var/log/db-backup.log 2>&1
+```
+
+</details>
+
+Thresholds and the topic come from the repository `.env` (see `.env.example`),
+so nothing on the schedule side holds secrets.
+
 # emitsignal-infra
 
 Operational scripts for EmitSignal. All scripts run with [Bun](https://bun.sh)
