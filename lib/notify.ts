@@ -20,7 +20,7 @@ export interface SignalMessage {
 
 export async function publishSignal(config: NotifyConfig, message: SignalMessage): Promise<void> {
     if (config.topic === null) {
-        return;
+        return console.warn('Skipping publishSignal - topic name not configured');
     }
 
     const headers: Record<string, string> = { 'content-type': 'application/json' };
