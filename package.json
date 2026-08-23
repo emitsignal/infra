@@ -21,7 +21,9 @@
         "format": "prettier --write .",
         "format:check": "prettier --check .",
         "lint": "eslint .",
-        "lint:fix": "eslint . --fix"
+        "lint:fix": "eslint . --fix",
+        "monitor": "bun system-monitor.ts",
+        "monitor:digest": "bun system-monitor.ts --digest"
     },
     "type": "module",
     "version": "1.0.0"

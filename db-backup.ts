@@ -16,25 +16,9 @@ import { join } from 'node:path';
 import type { BackupConfig } from './lib/config';
 
 import { createR2Client, loadConfig } from './lib/config';
+import { formatBytes } from './lib/format';
 import { publishSignal } from './lib/notify';
 import { dumpDatabase } from './lib/postgres';
-
-function formatBytes(bytes: number): string {
-    if (bytes < 1024) {
-        return `${bytes} B`;
-    }
-
-    const units = ['KB', 'MB', 'GB'];
-    let value = bytes / 1024;
-    let unitIndex = 0;
-
-    while (value >= 1024 && unitIndex < units.length - 1) {
-        value /= 1024;
-        unitIndex += 1;
-    }
-
-    return `${value.toFixed(1)} ${units[unitIndex]}`;
-}
 
 async function main(): Promise<void> {
     const config = await loadConfig();
