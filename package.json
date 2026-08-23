@@ -16,14 +16,14 @@
     },
     "private": true,
     "scripts": {
-        "db:backup": "bun db-backup.ts",
-        "db:restore": "bun db-restore.ts",
+        "db:backup": "bun scripts/db-backup.ts",
+        "db:restore": "bun scripts/db-restore.ts",
         "format": "prettier --write .",
         "format:check": "prettier --check .",
         "lint": "eslint .",
         "lint:fix": "eslint . --fix",
-        "monitor": "bun system-monitor.ts",
-        "monitor:digest": "bun system-monitor.ts --digest"
+        "monitor": "bun scripts/system-monitor.ts",
+        "monitor:digest": "bun scripts/system-monitor.ts --digest"
     },
     "type": "module",
     "version": "1.0.0"

@@ -2,9 +2,9 @@
 /**
  * Snapshot host and Docker health, and publish it to an EmitSignal topic.
  *
- *   bun system-monitor.ts            # publish only when a threshold is crossed
- *   bun system-monitor.ts --digest   # always publish (daily digest)
- *   bun system-monitor.ts --dry-run  # print the report, publish nothing
+ *   bun scripts/system-monitor.ts            # publish only when a threshold is crossed
+ *   bun scripts/system-monitor.ts --digest   # always publish (daily digest)
+ *   bun scripts/system-monitor.ts --dry-run  # print the report, publish nothing
  *
  * A plain run is meant for a frequent cron entry: it stays silent while the box
  * is healthy and publishes a priority-5 alert (exiting 1, so cron's MAILTO also
@@ -18,14 +18,14 @@
 
 import { hostname } from 'node:os';
 
-import type { MonitorConfig } from './lib/config';
-import type { MonitorSnapshot } from './lib/report';
+import type { MonitorConfig } from '../lib/config';
+import type { MonitorSnapshot } from '../lib/report';
 
-import { loadMonitorConfig } from './lib/config';
-import { readContainerHealth, readContainerStats, readDockerDiskUsage } from './lib/docker';
-import { publishSignal } from './lib/notify';
-import { collectWarnings, formatReport, formatTitle } from './lib/report';
-import { readCpu, readDisk, readLoadAverage, readMemory, readUptimeSeconds } from './lib/system';
+import { loadMonitorConfig } from '../lib/config';
+import { readContainerHealth, readContainerStats, readDockerDiskUsage } from '../lib/docker';
+import { publishSignal } from '../lib/notify';
+import { collectWarnings, formatReport, formatTitle } from '../lib/report';
+import { readCpu, readDisk, readLoadAverage, readMemory, readUptimeSeconds } from '../lib/system';
 
 const ALERT_PRIORITY = 5;
 const DIGEST_PRIORITY = 2;

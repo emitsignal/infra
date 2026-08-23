@@ -2,7 +2,7 @@
 /**
  * Dump the PostgreSQL database (custom format) and upload it to Cloudflare R2.
  *
- *   bun infra/db-backup.ts
+ *   bun scripts/db-backup.ts
  *
  * The dump is written to a local temp file, streamed up to R2 under
  * BACKUP_PREFIX, then removed. The object key is printed on success — pass it to
@@ -13,12 +13,12 @@ import { unlink } from 'node:fs/promises';
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import type { BackupConfig } from './lib/config';
+import type { BackupConfig } from '../lib/config';
 
-import { createR2Client, loadConfig } from './lib/config';
-import { formatBytes } from './lib/format';
-import { publishSignal } from './lib/notify';
-import { dumpDatabase } from './lib/postgres';
+import { createR2Client, loadConfig } from '../lib/config';
+import { formatBytes } from '../lib/format';
+import { publishSignal } from '../lib/notify';
+import { dumpDatabase } from '../lib/postgres';
 
 async function main(): Promise<void> {
     const config = await loadConfig();
@@ -68,7 +68,7 @@ async function runBackup(config: BackupConfig): Promise<void> {
 
     console.log('✅ Backup complete.');
     console.log(`   key: ${objectKey}`);
-    console.log(`   restore with: bun infra/db-restore.ts ${objectKey}`);
+    console.log(`   restore with: bun scripts/db-restore.ts ${objectKey}`);
 
     await publishSignal(config.notify, {
         body:

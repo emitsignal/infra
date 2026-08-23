@@ -38,7 +38,7 @@ cp .env.example .env
 
 ```bash
 bun run db:backup
-# or: bun db-backup.ts
+# or: bun scripts/db-backup.ts
 ```
 
 Prints the uploaded object key, e.g. `db-backups/emitsignal-20260621-2247.dump`.
@@ -81,7 +81,7 @@ result to the EmitSignal topic in `EMITSIGNAL_TOPIC`.
 ```bash
 bun run monitor            # publish only if a threshold is crossed (exit 1)
 bun run monitor:digest     # always publish a snapshot (exit 0 when healthy)
-bun system-monitor.ts --dry-run   # print the report, publish nothing
+bun scripts/system-monitor.ts --dry-run   # print the report, publish nothing
 ```
 
 A plain run stays silent while everything is healthy — it is meant for a
@@ -98,8 +98,8 @@ priority 2.
 ### Cron
 
 ```cron
-*/30 * * * * cd /opt/emitsignal-infra && /usr/local/bin/bun system-monitor.ts >> /var/log/system-monitor.log 2>&1
-0 8 * * *    cd /opt/emitsignal-infra && /usr/local/bin/bun system-monitor.ts --digest >> /var/log/system-monitor.log 2>&1
+*/30 * * * * cd /opt/emitsignal-infra && /usr/local/bin/bun scripts/system-monitor.ts >> /var/log/system-monitor.log 2>&1
+0 8 * * *    cd /opt/emitsignal-infra && /usr/local/bin/bun scripts/system-monitor.ts --digest >> /var/log/system-monitor.log 2>&1
 ```
 
 Thresholds and the topic come from the repository `.env` (see `.env.example`),
