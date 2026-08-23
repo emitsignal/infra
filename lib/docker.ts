@@ -15,10 +15,14 @@ import { parseByteSize, parsePercent } from './format';
 import { hostTotalMemoryBytes } from './system';
 
 export interface ContainerHealth {
+    /** Exit status of the last run; 0 for a job that completed successfully. */
+    exitCode: number;
     /** `healthy` / `unhealthy` / `starting`, or null when no healthcheck is defined. */
     health: null | string;
     name: string;
     restartCount: number;
+    /** `no` marks a one-shot job; long-running services use `unless-stopped`/`always`. */
+    restartPolicy: string;
     /** `running`, `restarting`, `exited`, … */
     state: string;
     /** Human status line from `docker ps`, e.g. "Up 4 days (healthy)". */
@@ -43,6 +47,14 @@ export interface DockerDiskUsageEntry {
     size: string;
     total: number;
     type: string;
+}
+
+interface InspectDetail {
+    exitCode: number;
+    health: null | string;
+    restartCount: number;
+    restartPolicy: string;
+    state: string;
 }
 
 export class DockerError extends Error {
@@ -78,9 +90,11 @@ export async function readContainerHealth(prefix: string): Promise<ContainerHeal
         const detail = details.get(name);
 
         return {
+            exitCode: detail?.exitCode ?? 0,
             health: detail?.health ?? null,
             name,
             restartCount: detail?.restartCount ?? 0,
+            restartPolicy: detail?.restartPolicy ?? 'no',
             state: String(entry?.State ?? detail?.state ?? 'unknown'),
             status: String(entry?.Status ?? ''),
         };
@@ -168,20 +182,16 @@ async function readDockerMemoryTotal(): Promise<number> {
     }
 }
 
-async function readInspectDetails(
-    names: string[],
-): Promise<Map<string, { health: null | string; restartCount: number; state: string }>> {
-    const details = new Map<
-        string,
-        { health: null | string; restartCount: number; state: string }
-    >();
+async function readInspectDetails(names: string[]): Promise<Map<string, InspectDetail>> {
+    const details = new Map<string, InspectDetail>();
 
     // Tab-separated because Go templates cannot easily emit a JSON object of
     // mixed literal and conditional fields.
     const output = await runDocker([
         'inspect',
         '--format',
-        '{{.Name}}\t{{.RestartCount}}\t{{.State.Status}}\t{{if .State.Health}}{{.State.Health.Status}}{{end}}',
+        '{{.Name}}\t{{.RestartCount}}\t{{.State.Status}}\t{{.State.ExitCode}}\t' +
+            '{{.HostConfig.RestartPolicy.Name}}\t{{if .State.Health}}{{.State.Health.Status}}{{end}}',
         ...names,
     ]);
 
@@ -190,11 +200,14 @@ async function readInspectDetails(
             continue;
         }
 
-        const [rawName = '', restartCount, state, health] = line.split('\t');
+        const [rawName = '', restartCount, state, exitCode, restartPolicy, health] =
+            line.split('\t');
 
         details.set(rawName.replace(/^\//, ''), {
+            exitCode: Number(exitCode) || 0,
             health: health === undefined || health.trim() === '' ? null : health.trim(),
             restartCount: Number(restartCount) || 0,
+            restartPolicy: restartPolicy?.trim() || 'no',
             state: state ?? 'unknown',
         });
     }
