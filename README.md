@@ -71,6 +71,55 @@ passed.
 - Credentials are passed to the container via `PG*` env vars (not on the command
   line), so they don't leak into `docker`'s process arguments.
 
+## System monitor
+
+Snapshots host health (memory, CPU, disk, load, uptime) plus the Docker
+containers whose name starts with `MONITOR_CONTAINER_PREFIX` (default
+`emitsignal-`, so the Dokploy control plane is left out), and publishes the
+result to the EmitSignal topic in `EMITSIGNAL_TOPIC`.
+
+```bash
+bun run monitor            # publish only if a threshold is crossed (exit 1)
+bun run monitor:digest     # always publish a snapshot (exit 0 when healthy)
+bun system-monitor.ts --dry-run   # print the report, publish nothing
+```
+
+A plain run stays silent while everything is healthy — it is meant for a
+frequent cron entry. The digest run is the once-a-day "here are the numbers"
+signal. Every run prints the full report to stdout, so redirecting to a log file
+replaces what the old `system-monitor.sh` logged itself.
+
+Alerts (priority 5) are raised when host memory, CPU or disk crosses its
+threshold, when a container passes `MONITOR_CONTAINER_MEM_THRESHOLD` **of its own
+memory limit**, or when a container is not running, is unhealthy, or has
+restarted more than `MONITOR_RESTART_THRESHOLD` times. A digest with no alerts is
+priority 2.
+
+### Cron
+
+```cron
+*/30 * * * * cd /opt/emitsignal-infra && /usr/local/bin/bun system-monitor.ts >> /var/log/system-monitor.log 2>&1
+0 8 * * *    cd /opt/emitsignal-infra && /usr/local/bin/bun system-monitor.ts --digest >> /var/log/system-monitor.log 2>&1
+```
+
+Thresholds and the topic come from the repository `.env` (see `.env.example`),
+so the crontab holds no secrets. Log rotation, if you want it, is unchanged from
+before — `/etc/logrotate.d/system-monitor` with `weekly`, `rotate 8`, `compress`.
+
+### Notes
+
+- Host metrics read `/proc`, which is Linux-only. On macOS those lines report as
+  unavailable and the rest of the report still renders — useful for developing
+  the format, not for real numbers.
+- Docker being unreachable is not fatal: the host section still publishes and
+  the body says which Docker metrics were missing.
+- Containers without a `--memory` limit are excluded from the memory-pressure
+  ranking. Docker measures those against total host RAM, so their "memory %"
+  says nothing about how close they are to being killed.
+- This supersedes the standalone `system-monitor.sh` and its `ES_HOST` /
+  `ES_TOPIC` / `ES_API_KEY` variables; the Bun script uses `EMITSIGNAL_*` like
+  the backup scripts do.
+
 ## Development
 
 ```bash

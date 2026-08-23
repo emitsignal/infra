@@ -1,5 +1,5 @@
 /**
- * Typed configuration for the infra database backup/restore scripts.
+ * Typed configuration for the infra scripts.
  *
  * Reuses the same `S3_*` credentials the server uses for Cloudflare R2 (see
  * `packages/emitsignal-server/src/lib/storage/s3-provider.ts`). Backups land in
@@ -7,6 +7,10 @@
  *
  * Setting `EMITSIGNAL_TOPIC` opts in to publishing run outcomes back to
  * EmitSignal itself; leaving it unset disables notifications entirely.
+ *
+ * The system monitor has its own loader: it needs the notification settings but
+ * none of the database or R2 credentials, so requiring them would make the
+ * monitor unusable on a host that only runs Docker.
  */
 
 import { loadEnvironment } from './env';
@@ -18,6 +22,23 @@ export interface BackupConfig {
     postgresImage: string;
     prefix: string;
     r2: R2Credentials;
+}
+
+export interface MonitorConfig {
+    containerPrefix: string;
+    diskMount: string;
+    notify: NotifyConfig;
+    thresholds: MonitorThresholds;
+}
+
+export interface MonitorThresholds {
+    /** Percentage of a container's own memory limit. */
+    containerMemoryPercent: number;
+    cpuPercent: number;
+    diskPercent: number;
+    memoryPercent: number;
+    /** A container that restarted more often than this is considered unstable. */
+    restartCount: number;
 }
 
 export interface NotifyConfig {
@@ -54,19 +75,54 @@ export async function loadConfig(): Promise<BackupConfig> {
         secretAccessKey: required('S3_SECRET_ACCESS_KEY'),
     };
 
-    const notify: NotifyConfig = {
-        apiKey: nullable('EMITSIGNAL_API_KEY'),
-        apiUrl: optional('EMITSIGNAL_API_URL', 'https://api.emitsignal.com').replace(/\/+$/, ''),
-        topic: nullable('EMITSIGNAL_TOPIC'),
-    };
-
     return {
         bucket: optional('BACKUP_BUCKET', required('S3_PRIVATE_BUCKET_NAME')),
         databaseUrl: required('DATABASE_URL'),
-        notify,
+        notify: loadNotifyConfig(),
         postgresImage: optional('POSTGRES_IMAGE', 'postgres:16-alpine'),
         prefix: optional('BACKUP_PREFIX', 'db-backups').replace(/\/+$/, ''),
         r2,
+    };
+}
+
+export async function loadMonitorConfig(): Promise<MonitorConfig> {
+    await loadEnvironment();
+
+    return {
+        containerPrefix: optional('MONITOR_CONTAINER_PREFIX', 'emitsignal-'),
+        diskMount: optional('MONITOR_DISK_MOUNT', '/'),
+        notify: loadNotifyConfig(),
+        thresholds: {
+            containerMemoryPercent: percentage('MONITOR_CONTAINER_MEM_THRESHOLD', 90),
+            cpuPercent: percentage('MONITOR_CPU_THRESHOLD', 85),
+            diskPercent: percentage('MONITOR_DISK_THRESHOLD', 85),
+            memoryPercent: percentage('MONITOR_MEM_THRESHOLD', 85),
+            restartCount: integer('MONITOR_RESTART_THRESHOLD', 3),
+        },
+    };
+}
+
+function integer(name: string, fallback: number): number {
+    const value = process.env[name];
+
+    if (value === undefined || value.trim() === '') {
+        return fallback;
+    }
+
+    const parsed = Number(value.trim());
+
+    if (!Number.isFinite(parsed) || parsed < 0) {
+        throw new Error(`Environment variable "${name}" must be a non-negative number.`);
+    }
+
+    return parsed;
+}
+
+function loadNotifyConfig(): NotifyConfig {
+    return {
+        apiKey: nullable('EMITSIGNAL_API_KEY'),
+        apiUrl: optional('EMITSIGNAL_API_URL', 'https://api.emitsignal.com').replace(/\/+$/, ''),
+        topic: nullable('EMITSIGNAL_TOPIC'),
     };
 }
 
@@ -80,6 +136,16 @@ function optional(name: string, fallback: string): string {
     const value = process.env[name];
 
     return value === undefined || value.trim() === '' ? fallback : value;
+}
+
+function percentage(name: string, fallback: number): number {
+    const parsed = integer(name, fallback);
+
+    if (parsed > 100) {
+        throw new Error(`Environment variable "${name}" must be a percentage between 0 and 100.`);
+    }
+
+    return parsed;
 }
 
 function required(name: string): string {
