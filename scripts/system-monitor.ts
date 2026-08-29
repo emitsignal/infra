@@ -106,27 +106,24 @@ async function collectSnapshot(config: MonitorConfig): Promise<MonitorSnapshot> 
         }
     };
 
-    // Collected in parallel: the CPU reader alone costs a one-second sample, and
-    // one unavailable metric must not sink the rest of the report.
-    const [
-        memory,
-        cpu,
-        disk,
-        load,
-        uptimeSeconds,
-        containerStats,
-        containerHealth,
-        dockerDiskUsage,
-    ] = await Promise.all([
-        attempt('memory', () => readMemory()),
-        attempt('cpu', () => readCpu()),
-        attempt('disk', () => readDisk(config.diskMount)),
-        attempt('load average', () => readLoadAverage()),
-        attempt('uptime', () => readUptimeSeconds()),
-        attempt('docker stats', () => readContainerStats(config.containerPrefix)),
-        attempt('docker health', () => readContainerHealth(config.containerPrefix)),
-        attempt('docker system df', () => readDockerDiskUsage()),
-    ]);
+    // First and alone: readCpu samples /proc/stat over a window, which measures
+    // the whole host — including this process. Running it alongside the `docker`
+    // and `df` subprocesses below made the monitor report its own work as a
+    // host-wide spike (a ~2% idle box read as 90%+ and paged us).
+    const cpu = await attempt('cpu', () => readCpu());
+
+    // The rest are cheap enough to overlap, and one unavailable metric must not
+    // sink the whole report.
+    const [memory, disk, load, uptimeSeconds, containerStats, containerHealth, dockerDiskUsage] =
+        await Promise.all([
+            attempt('memory', () => readMemory()),
+            attempt('disk', () => readDisk(config.diskMount)),
+            attempt('load average', () => readLoadAverage()),
+            attempt('uptime', () => readUptimeSeconds()),
+            attempt('docker stats', () => readContainerStats(config.containerPrefix)),
+            attempt('docker health', () => readContainerHealth(config.containerPrefix)),
+            attempt('docker system df', () => readDockerDiskUsage()),
+        ]);
 
     return {
         containerHealth,
