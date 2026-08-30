@@ -55,7 +55,11 @@ export class SystemMetricError extends Error {
     }
 }
 
-const CPU_SAMPLE_INTERVAL_MILLISECONDS = 1_000;
+// A tick is 1/100th of a core-second, so a one-second window on a 2-core box is
+// only ~200 ticks: a single short-lived process running alongside the sample can
+// own most of it and read as a host-wide spike. Three seconds costs nothing on a
+// half-hourly cron and makes the number stable.
+const CPU_SAMPLE_INTERVAL_MILLISECONDS = 3_000;
 
 export function hostCoreCount(): number {
     return Math.max(cpus().length, 1);
@@ -69,6 +73,10 @@ export function hostTotalMemoryBytes(): number {
  * Busy time over total time between two `/proc/stat` samples — the same
  * definition as `100 - idle%`, but measured over an interval instead of since
  * boot (which would only ever report a long-run average).
+ *
+ * This reads the *whole host*, so whatever else the caller is doing lands in the
+ * number. Callers must not run other work — spawning `docker stats` especially —
+ * while this is awaited; see `collectSnapshot` in scripts/system-monitor.ts.
  */
 export async function readCpu(): Promise<CpuUsage> {
     const first = await readCpuSample();
